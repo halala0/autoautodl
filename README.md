@@ -1,7 +1,7 @@
 <p align="center"><img src="src/assets/autoautodl.png" width="112" alt="autoautodl 图标"></p>
 <h1 align="center">autoautodl</h1>
 <p align="center">AutoDL GPU 监控与自动候补桌面助手</p>
-<p align="center"><a href="https://github.com/lxuetl/autoautodl/releases/tag/v0.6.6-test.1">下载 Windows 测试版</a> · <a href="#快速开始">快速开始</a> · <a href="#通知设置">通知设置</a></p>
+<p align="center"><a href="https://github.com/lxuetl/autoautodl/releases/tag/v1.0.0">下载 Windows 正式版</a> · <a href="#快速开始">快速开始</a> · <a href="#通知设置">通知设置</a></p>
 
 在一个深色工作台中查看 GPU 库存、实例资源、余额与任务进度。支持已有实例开机、克隆和新建实例；首页可以同时候补开机与克隆，目标是**只获取一台**。
 
@@ -9,13 +9,25 @@
 
 ## 下载与更新
 
-当前版本：**0.6.6-test.1（预发布测试版）**。
+当前版本：**1.0.0（首个正式版）**。
 
-- [下载 Windows 便携版](https://github.com/lxuetl/autoautodl/releases/download/v0.6.6-test.1/autoautodl-0.6.6-test.1-Windows.exe)：下载后直接运行，无需安装 Node.js。
+- [下载 Windows 安装版（推荐）](https://github.com/lxuetl/autoautodl/releases/download/v1.0.0/autoautodl-1.0.0-Setup.exe)：安装后创建桌面与开始菜单快捷方式。
+- [下载 Windows 便携版](https://github.com/lxuetl/autoautodl/releases/download/v1.0.0/autoautodl-1.0.0-Windows.exe)：下载后直接运行，无需安装 Node.js。
 - [全部版本与更新说明](https://github.com/lxuetl/autoautodl/releases)：同页提供 `SHA256SUMS.txt`，可核对下载文件。
 - 此版统一名称与图标，更新窗口、侧栏、托盘、通知和 EXE 标识。原有账号会话、设置与任务数据继续使用。
 
 便携程序目前未签名。应用内“检查更新”可查看版本并打开发布页，不会自动安装。更新前请先退出旧程序，再启动新版。
+
+## 安装版与便携版
+
+正式版同时提供两种 Windows 文件：
+
+| 文件 | 用途 |
+| --- | --- |
+| `autoautodl-<版本>-Setup.exe` | 安装向导，可选择目录，默认创建桌面和开始菜单快捷方式，支持从 Windows 设置卸载 |
+| `autoautodl-<版本>-Windows.exe` | 便携版，直接运行，不自动创建快捷方式 |
+
+安装版默认安装到当前用户。安装前请从托盘退出旧程序；从便携版切换到安装版会沿用 `%APPDATA%\autodl-companion` 中的数据。卸载默认保留账号会话和设置，方便重新安装使用。
 
 ## 主要功能
 
@@ -92,18 +104,21 @@ npm test
 npm start
 # 使用虚构数据预览界面
 npm run demo
-# 生成 release/autoautodl-<版本>-Windows.exe
+# 同时生成安装版和便携版
 npm run dist
+# 只生成安装版 / 便携版
+npm run dist:installer
+npm run dist:portable
 ```
 
-本版通过 **422 项自动化测试**，并完成打包后的无账号启动、浏览器依赖和界面烟雾检查。演示截图使用虚构数据。这些检查不等同于真实账号下的新建、克隆和计费开机验收。
+本版通过 **436 项自动化测试**，并完成打包后的无账号启动、浏览器依赖和界面烟雾检查。演示截图使用虚构数据。这些检查不等同于真实账号下的新建、克隆和计费开机验收。
 
-推送 `v*` 标签会触发 [Windows 构建与发布工作流](https://github.com/lxuetl/autoautodl/actions/workflows/windows.yml)，测试、打包后生成预发布版及 SHA-256 校验文件。
+推送 `v*` 标签会触发 [Windows 构建与发布工作流](https://github.com/lxuetl/autoautodl/actions/workflows/windows.yml)，测试、打包后生成安装版、便携版及 SHA-256 校验文件；正式版本标签发布正式版，带后缀的标签发布预发布版。
 
 ## 已知限制与参考项目
 
 AutoDL 页面和网页端接口变化可能影响功能；平台返回 `DatabaseError` 或服务异常时，应用不能保证消除上游故障。自动化使用需遵守平台规则，本项目不保证库存获取成功或账号不受限制。
 
-首页单台候补采用保守的提交锁，结果未知时不会重复创建。当前已完成的单台任务组没有专门的“重置任务组”入口，后续再次候补的体验仍需完善。
+首页单台候补采用保守的提交锁，结果未知时不会重复创建。旧克隆任务已暂停且目标经重新核实已关机时，系统会自动归档并解锁；也可通过“结束旧候补并解除锁定”主动结束已核实的任务组。历史回执和云端实例保留，结果不明时仍保持锁定。
 
 新建与克隆工作台集成了 [Stop-Manually-Refreshing-AutoDL-GPU](https://github.com/cc2025cheng/Stop-Manually-Refreshing-AutoDL-GPU) 的 MIT 源码，并保留许可证。已有实例模块参考 [CrazyAutoDL（胡闹 AutoDL）](https://github.com/A2ureeE/CrazyAutoDL) 的功能与接口方式，未复制其源码。详见 [第三方说明](THIRD_PARTY_NOTICES.md)。

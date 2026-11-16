@@ -124,7 +124,7 @@ class SharedSession {
     if(changed&&endpoint!=='/instance')throw new Error('会话已变化，先重新同步实例');
     if(endpoint!=='/instance'&&this.apiVerified!==credential&&(status!=='ready'||['/instance/power_on','/instance/power_off'].includes(endpoint)))throw new Error('账号尚未通过接口验证，正在等待实例同步');
     const epoch=this.epoch,url='https://www.autodl.com/api/v1'+endpoint,method=endpoint==='/wallet'?'GET':'POST';
-    const headers={Authorization:credential,Accept:'application/json, text/plain, */*','User-Agent':'AutoDL-Companion/0.6.5 (Windows)',...(method==='POST'?{'Content-Type':'application/json;charset=UTF-8'}:{})};
+    const headers={Authorization:credential,Accept:'application/json, text/plain, */*','User-Agent':'autoautodl/1.0.0 (Windows)',...(method==='POST'?{'Content-Type':'application/json;charset=UTF-8'}:{})};
     let response;
     try{response=await this.fetch(url,{method,headers,body:method==='POST'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)});}
     catch(error){throw new Error(endpoint+' 请求未完成：'+(error.name==='TimeoutError'?'超时':String(error.message).slice(0,100)));}

@@ -1,6 +1,6 @@
 {
   "name": "autodl-companion",
-  "version": "0.6.6-test.1",
+  "version": "1.0.0",
   "private": true,
   "description": "AutoDL 实例与 GPU 库存助手",
   "author": "Local project",
@@ -8,8 +8,10 @@
   "scripts": {
     "start": "electron .",
     "demo": "electron . --demo",
-    "test": "node --test src/core.test.js src/stock-client.test.js src/main.test.js src/session.test.js src/rent-workspace.test.js vendor/autodl-watch/tests/*.test.mjs",
-    "dist": "electron-builder --win portable"
+    "test": "node --test src/queue-state.test.js src/core.test.js src/stock-client.test.js src/main.test.js src/session.test.js src/rent-workspace.test.js vendor/autodl-watch/tests/*.test.mjs",
+    "dist": "electron-builder --win",
+    "dist:installer": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable"
   },
   "devDependencies": {
     "electron": "45.3.0",
@@ -30,7 +32,10 @@
       "package.json"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "signExecutable": false,
       "icon": "src/assets/autoautodl.ico"
     },
@@ -40,7 +45,20 @@
     },
     "asarUnpack": [
       "node_modules/playwright*/**/*"
-    ]
+    ],
+    "nsis": {
+      "artifactName": "autoautodl-${version}-Setup.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "autoautodl",
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "src/assets/autoautodl.ico",
+      "uninstallerIcon": "src/assets/autoautodl.ico",
+      "runAfterFinish": true
+    }
   },
   "dependencies": {
     "playwright": "1.56.1"

@@ -90,3 +90,35 @@ test('恢复已完成开机组补入通知，克隆完成不重复入开机通�
  const h=mainContext();h.run("globalThis.messages=[];rentWorkspace={service:{store:{enqueueNotification:(...args)=>messages.push(args)}}};state.oneMachine={owner:'clone-id',at:123,done:true};queuePowerSuccess();");
  assert.equal(h.run('messages.length'),0);h.run("state.oneMachine.owner='power:i';queuePowerSuccess()");assert.equal(h.run('messages.length'),1);
 });
+
+test('旧克隆只读核实不解锁、不恢复任务、不提交新请求',async()=>{
+ const h=mainContext();h.run("state.oneMachine={owner:'old',done:false};rentWorkspace={service:{store:{tasks:()=>[{id:'old',state:'paused',operation:{receipt:{instanceId:'target'}}}]}}};openRentWorkspace=async()=>{};pages=async()=>[];request=async()=>{throw Error('不应提交')};");
+ await h.run('inspectLastSubmission()');assert.equal(h.run('state.oneMachine.owner'),'old');assert.match(h.run('state.submissionCheck'),/未找到/);assert.match(h.run('state.submissionCheck'),/已暂停/);
+});
+function retirementContext(status='shutdown'){
+ const h=mainContext();h.run("globalThis.oldTask={id:'old',state:'paused',operation:{stage:'accepted',receipt:{instanceId:'target'}}};state.oneMachine={owner:'old',done:false};state.homeTask='old';rentWorkspace={service:{store:{tasks:()=>[oldTask],patch:(t,p)=>Object.assign(t,p)},engine:{busy:false,control:()=>{throw Error('不应恢复检查')}}}};openRentWorkspace=async()=>{};request=async()=>{throw Error('不应操作云端')};");
+ h.run('pages=async()=>'+JSON.stringify(status?[{uuid:'target',status}]:[])+';');return h;
+}
+test('结束旧克隆保存回执历史并解锁，未声称复制成功',async()=>{
+ const h=retirementContext();await h.run('retireHomeGroup({confirmed:true})');assert.equal(h.run('state.oneMachine'),null);assert.equal(h.run('oldTask.operation'),null);assert.equal(h.run('oldTask.state'),'cancelled');assert.equal(h.run('oldTask.archivedSubmissions[0].receipt.instanceId'),'target');assert.equal(h.run('oldTask.manualDataVerifiedAt'),undefined);assert.equal(h.run('state.actionBusy'),false);h.run('halt()');
+});
+test('未确认、目标丢失或启动中均保留旧锁和回执',async()=>{
+ const h=retirementContext();await assert.rejects(h.run('retireHomeGroup({})'),/确认/);
+ for(const status of [null,'starting']){const f=retirementContext(status);await assert.rejects(f.run('retireHomeGroup({confirmed:true})'),/暂不能/);assert.ok(f.run('oldTask.operation'));assert.ok(f.run('state.oneMachine'));assert.equal(f.run('rentWorkspace.service.engine.busy'),false);f.run('halt()');}
+});
+test('页面引擎忙碌或电源待核实时不能解除旧锁',async()=>{
+ const h=retirementContext();h.run('rentWorkspace.service.engine.busy=true');await assert.rejects(h.run('retireHomeGroup({confirmed:true})'),/正在执行/);h.run("rentWorkspace.service.engine.busy=false;state.pending={id:'i'}");await assert.rejects(h.run('retireHomeGroup({confirmed:true})'),/核实/);
+});
+test('归档落盘后中断可在重启安装引擎时解除旧组，不恢复旧任务',()=>{
+ const h=retirementContext();h.run("oldTask.operation=null;oldTask.state='cancelled';oldTask.retiredAt=123;rentWorkspace.service.engine.step=async()=>{};installOneMachine(rentWorkspace.service)");assert.equal(h.run('state.oneMachine'),null);assert.equal(h.run('state.homeTask'),null);
+});
+
+test('已暂停的旧克隆自动核实关机后归档，不启动新任务',async()=>{
+ const h=retirementContext();await h.run('autoRetireOldGroup()');assert.equal(h.run('state.oneMachine'),null);assert.equal(h.run('state.watching'),false);assert.equal(h.run('oldTask.state'),'cancelled');h.run('halt()');
+});
+test('自动核实不会释放运行中、启动中或未知目标',async()=>{
+ for(const status of ['running','starting',null]){const h=retirementContext(status);await h.run('autoRetireOldGroup()');assert.ok(h.run('state.oneMachine'));assert.ok(h.run('oldTask.operation'));h.run('halt()');}
+});
+test('自动核实不处理无回执或仍活跃任务',async()=>{
+ for(const setup of ["oldTask.operation.receipt=null","oldTask.state='verifying'"]){const h=retirementContext();h.run(setup+";pages=async()=>{throw Error('不应查询')}");await h.run('autoRetireOldGroup()');assert.ok(h.run('state.oneMachine'));assert.equal(h.run('autoRetireAt'),0);}
+});

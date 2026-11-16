@@ -31,7 +31,7 @@ async function openRentWorkspace(createView=true){
       const runtimeDir=demo?fs.mkdtempSync(path.join(app.getPath('temp'),'autodl-workspace-smoke-')):path.join(app.getPath('userData'),'rent-workspace');
       rentWorkspace=await createRentWorkspace(runtimeDir,onSharedSession);
       installOneMachine(rentWorkspace.service);
-      if(!demo)sessionTimer=setInterval(()=>{queuePowerSuccess();emit();rentWorkspace?.sharedSession.poll().catch(()=>{});},3000);
+      if(!demo)sessionTimer=setInterval(()=>{queuePowerSuccess();void autoRetireOldGroup();emit();rentWorkspace?.sharedSession.poll().catch(()=>{});},3000);
     }
     if(createView&&!rentView){
       rentView=new WebContentsView({webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
@@ -184,6 +184,10 @@ function finishMachine(owner){
   log('已获得一台实例，整组候补结束');if(owner.startsWith('power:'))notify('抢机成功：已有实例已运行，其他候补已结束');
 }
 function installOneMachine(service){
+  // Recover a crash after the historical receipt was saved but before the group was cleared.
+  const retired=service.store.tasks().find(t=>t.id===state.oneMachine?.owner&&t.retiredAt&&!t.operation&&['completed','cancelled'].includes(t.state));
+  if(retired){state.oneMachine=null;state.homeTask=null;persist();}
+
   // 兼容升级前已经提交的租用任务，不能把它当作空闲的提交名额。
   const existing=service.store.tasks().find(t=>t.operation&&!['completed','cancelled'].includes(t.state));
   if(!state.oneMachine&&existing){state.oneMachine={owner:existing.id,at:Date.now(),done:false};persist();}
@@ -310,6 +314,61 @@ async function checkUpdates(){
   const releases=await response.json();
   const latest=releases.filter(r=>!r.draft&&/^v?\d+\.\d+\.\d+$/.test(r.tag_name)).sort((a,b)=>b.tag_name.replace(/^v/,'').localeCompare(a.tag_name.replace(/^v/,''),undefined,{numeric:true}))[0];
   log(latest?`当前 ${app.getVersion()}；已发布 ${latest.tag_name}。测试版不会自动降级，请在发布页核对版本。`:'尚无已发布版本');
+}
+async function inspectLastSubmission(){
+  if(!state.connected)throw new Error('请先登录后核实上次提交');
+  if(state.actionBusy)throw new Error('正在提交，请稍后核实');
+  if(state.pending){await verifyPower();return;}
+  await openRentWorkspace(false);
+  const group=state.oneMachine;
+  if(!group){log('当前没有锁定的提交');return;}
+  const task=rentWorkspace.service.store.tasks().find(t=>t.id===group.owner);
+  const id=group.owner.startsWith('power:')?group.owner.slice(6):task?.operation?.receipt?.instanceId;
+  if(!id)throw new Error('旧提交没有目标实例回执，请在新建实例的任务详情中重新核对实例列表；不会自动解除锁定');
+  const rows=(await pages('/instance',{status:[],charge_type:[],date_from:'',date_to:''})).map(core.instance);
+  if(state.oneMachine!==group)throw new Error('核实期间任务已变化，请重新查看');
+  const item=rows.find(i=>i.id===id);
+  state.submissionCheck='上次提交目标 '+id+'：'+(item?'当前状态 '+item.status:'当前账号实例列表中未找到')+'。'+(task?.state==='paused'?'旧克隆任务已暂停，系统将定期核实；确认目标关机后自动归档并解除锁定。':'请结合官方控制台核对。')+' 本次仅查询，没有开机或创建实例。';
+  log(state.submissionCheck);
+}
+let autoRetireChecking=false,autoRetireAt=0;
+async function autoRetireOldGroup(){
+  const service=rentWorkspace?.service,group=state.oneMachine;
+  if(autoRetireChecking||Date.now()-autoRetireAt<30000||!state.connected||!group||state.pending||state.actionBusy||state.watching||busy||service?.engine.busy)return;
+  const task=service?.store.tasks().find(t=>t.id===group.owner);
+  // A known target and a stopped local task are required; never infer absence means failure.
+  if(!task?.operation?.receipt?.instanceId||!['paused','cancelled','attention'].includes(task.state))return;
+  autoRetireChecking=true;autoRetireAt=Date.now();
+  try{await retireHomeGroup({confirmed:true,automatic:true});}
+  catch(error){state.submissionCheck='系统正在定期核实旧提交：'+error.message;emit();}
+  finally{autoRetireChecking=false;}
+}
+async function retireHomeGroup(input){
+  if(input?.confirmed!==true)throw new Error('请确认结束旧候补，云端实例仍会保留');
+  if(!state.connected)throw new Error('请先登录并核实目标实例');
+  if(state.pending||state.actionBusy)throw new Error('仍有请求正在提交或等待核实，暂不能结束');
+  await openRentWorkspace(false);
+  const service=rentWorkspace.service,group=state.oneMachine;
+  if(!group)throw new Error('当前没有需要结束的候补组');
+  if(busy||service.engine.busy||state.actionBusy||state.pending)throw new Error('正在执行任务或同步，请稍后再结束');
+  const task=service.store.tasks().find(t=>t.id===group.owner);
+  const id=group.owner.startsWith('power:')?group.owner.slice(6):task?.operation?.receipt?.instanceId||task?.result?.id;
+  if(!id)throw new Error('旧提交缺少目标回执，需先核实，不能直接解除锁定');
+  state.actionBusy=true;service.engine.busy=true;halt();
+  try{
+    const rows=(await pages('/instance',{status:[],charge_type:[],date_from:'',date_to:''})).map(core.instance);
+    if(state.oneMachine!==group)throw new Error('任务已变化，请重新查看');
+    const item=rows.find(i=>i.id===id);
+    if(input.automatic&&(!item||!['shutdown','stopped','poweroff','power_off'].includes(item.status)))throw new Error('目标尚未确认关机，保留旧提交，稍后继续核实');
+    if(!item||!['running','shutdown','stopped','poweroff','power_off'].includes(item.status))throw new Error('目标不存在或仍在创建/启动，暂不能结束旧候补；提交记录已保留');
+    if(service.store.tasks().some(t=>t.id!==group.owner&&t.operation&&!['completed','cancelled'].includes(t.state)))throw new Error('还有其他提交待核实，暂不能解除锁定');
+    // Store the receipt as history before clearing the active operation. No cloud mutation.
+    if(task)service.store.patch(task,{state:task.state==='completed'?'completed':'cancelled',
+      retiredAt:Date.now(),lastError:null,lastProgress:input.automatic?'系统已核实目标关机并归档旧候补；未确认数据盘完整性':'用户已结束旧候补；云端实例保留，未确认数据盘完整性',
+      archivedSubmissions:[...(task.archivedSubmissions||[]),...(task.operation?[{...task.operation,archivedAt:Date.now(),observedStatus:item.status}]:[])],operation:null});
+    for(const t of service.store.tasks())if(t.id!==group.owner&&!t.operation&&['queued','watching','preparing','paused'].includes(t.state))service.engine.control(t,'cancel');
+    state.oneMachine=null;state.homeTask=null;state.submissionCheck='旧候补已结束，目标 '+id+' 保留在 AutoDL（'+item.status+'）。现在可以选择实例开始新一轮排队。';persist();log(state.submissionCheck);
+  }finally{state.actionBusy=false;service.engine.busy=false;emit();scheduleDataRefresh();}
 }
 async function startHomeGroup(input){
   if(!input||!['power','clone','both'].includes(input.mode))throw new Error('请选择候补方式');
@@ -511,6 +570,8 @@ app.whenReady().then(()=>{
       else if(action==='settings'){const next=core.settings(payload);if(state.watching&&['gpu','region','count'].some(k=>next[k]!==state.settings[k]))throw new Error('监控中只能修改频率和余额阈值，请停止后再改筛选');state.settings=next;balanceAlerted=false;persist();if(state.watching&&!busy){clearTimeout(timer);const delay=core.pollDelay(next.seconds,errors,Math.max(rentWorkspace?.sharedSession.retryUntil||0,stockClient.retryUntil));state.nextCheckAt=Date.now()+delay;timer=setTimeout(loop,delay);}}
       else if(action==='target'){if(state.watching||rentWorkspace?.service.store.tasks().some(t=>t.id===state.homeTask&&['queued','watching','preparing','submitting','verifying'].includes(t.state)))throw new Error('请先停止当前候补再切换目标');state.target=String(payload||'');state.markets=[];state.stockError='';stockClient.retryUntil=0;availabilityKey='';scheduleDataRefresh(0);}
       else if(action==='refresh')await refresh();
+      else if(action==='retireHomeGroup')await retireHomeGroup(payload);
+      else if(action==='inspectSubmission')await inspectLastSubmission();
       else if(action==='startHome')await startHomeGroup(payload);
       else if(action==='start')startMonitoring(!!payload);
       else if(action==='stop'){halt();const t=rentWorkspace?.service.store.tasks().find(t=>t.id===state.homeTask);if(t&&!['completed','cancelled'].includes(t.state))rentWorkspace.service.engine.control(t,'pause');scheduleDataRefresh();}

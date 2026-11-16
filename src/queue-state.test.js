@@ -1,0 +1,10 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {queueAvailability}=require('./queue-state');
+const ready={connected:true,instances:[{id:'i'}],target:'i'};
+test('后台同步不阻止已有目标开始排队',()=>assert.equal(queueAvailability({...ready,syncing:true}).reason,''));
+test('登录和实例选择缺失时给出可操作原因',()=>{assert.match(queueAvailability({...ready,connected:false}).reason,/登录/);assert.match(queueAvailability({...ready,target:'missing'}).reason,/选择/);});
+test('提交和待核实请求仍会阻止启动',()=>{for(const key of ['pending','actionBusy'])assert.ok(queueAvailability({...ready,[key]:true}).reason);});
+test('已完成与未完成提交锁分别解释原因',()=>{assert.match(queueAvailability({...ready,oneMachine:{done:true}}).reason,/已经完成/);assert.match(queueAvailability({...ready,oneMachine:{done:false}}).reason,/核实/);});
+test('重复监控与克隆候补不能重复启动',()=>{assert.ok(queueAvailability({...ready,watching:true}).reason);assert.ok(queueAvailability({...ready,homeTask:'c',rentalTasks:[{id:'c',state:'watching'}]}).reason);assert.equal(queueAvailability({...ready,homeTask:'c',rentalTasks:[{id:'c',state:'paused'}]}).reason,'');});
+test('已完成任务组仍可只读监控',()=>assert.equal(queueAvailability({...ready,oneMachine:{done:true}}).monitorReason,''));
