@@ -9,9 +9,9 @@
     "start": "electron .",
     "demo": "electron . --demo",
     "test": "node --test src/queue-state.test.js src/core.test.js src/stock-client.test.js src/main.test.js src/session.test.js src/rent-workspace.test.js vendor/autodl-watch/tests/*.test.mjs",
-    "dist": "electron-builder --win",
-    "dist:installer": "electron-builder --win nsis",
-    "dist:portable": "electron-builder --win portable"
+    "dist": "electron-builder --win --publish never",
+    "dist:installer": "electron-builder --win nsis --publish never",
+    "dist:portable": "electron-builder --win portable --publish never"
   },
   "devDependencies": {
     "electron": "45.3.0",
